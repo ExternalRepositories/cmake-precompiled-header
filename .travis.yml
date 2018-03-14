@@ -1,0 +1,4 @@
+sudo: true
+
+script:
+  - bash runall.sh

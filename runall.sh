@@ -1,4 +1,6 @@
 #!/bin/sh -exu
+set -e
+
 buildroot=$(dirname $(readlink -f $0))/build
 generator="Unix Makefiles"
 mkdir -p "$buildroot"
