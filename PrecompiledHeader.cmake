@@ -63,7 +63,7 @@ macro(combine_arguments _variable)
   set(${_variable} "${_result}")
 endmacro()
 
-function(export_all_flags _filename)
+function(export_all_flags _filename mode)
   set(_include_directories "$<TARGET_PROPERTY:${_target},INCLUDE_DIRECTORIES>")
   set(_compile_definitions "$<TARGET_PROPERTY:${_target},COMPILE_DEFINITIONS>")
   set(_compile_flags "$<TARGET_PROPERTY:${_target},COMPILE_FLAGS>")
@@ -72,7 +72,104 @@ function(export_all_flags _filename)
   set(_compile_definitions "$<$<BOOL:${_compile_definitions}>:-D$<JOIN:${_compile_definitions},\n-D>\n>")
   set(_compile_flags "$<$<BOOL:${_compile_flags}>:$<JOIN:${_compile_flags},\n>\n>")
   set(_compile_options "$<$<BOOL:${_compile_options}>:$<JOIN:${_compile_options},\n>\n>")
-  file(GENERATE OUTPUT "${_filename}" CONTENT "${_compile_definitions}${_include_directories}${_compile_flags}${_compile_options}\n")
+
+  set(_standard_check "")
+  if("${mode}" STREQUAL "CXX")
+    set(_cxx_standard "$<TARGET_PROPERTY:${_target},CXX_STANDARD>")
+    set(_cxx_extensions "$<TARGET_PROPERTY:${_target},CXX_EXTENSIONS>")
+    set(_has_extensions "$<OR:$<STREQUAL:${_cxx_extensions},>,$<BOOL:${_cxx_extensions}>>") # CXX_EXTENSIONS defaults to true
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_cxx_standard},17>,$<NOT:${_has_extensions}>>:${CMAKE_CXX17_STANDARD_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_cxx_standard},14>,$<NOT:${_has_extensions}>>:${CMAKE_CXX14_STANDARD_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_cxx_standard},11>,$<NOT:${_has_extensions}>>:${CMAKE_CXX11_STANDARD_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_cxx_standard},98>,$<NOT:${_has_extensions}>>:${CMAKE_CXX98_STANDARD_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_cxx_standard},17>,${_has_extensions}>:${CMAKE_CXX17_EXTENSION_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_cxx_standard},14>,${_has_extensions}>:${CMAKE_CXX14_EXTENSION_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_cxx_standard},11>,${_has_extensions}>:${CMAKE_CXX11_EXTENSION_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_cxx_standard},98>,${_has_extensions}>:${CMAKE_CXX98_EXTENSION_COMPILE_OPTION}>")
+  endif()
+  if("${mode}" STREQUAL "C")
+    set(_c_standard "$<TARGET_PROPERTY:${_target},C_STANDARD>")
+    set(_c_extensions "$<TARGET_PROPERTY:${_target},C_EXTENSIONS>")
+    set(_has_extensions "$<OR:$<STREQUAL:${_c_extensions},>,$<BOOL:${_c_extensions}>>") # C_EXTENSIONS defaults to true
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_c_standard},11>,$<NOT:${_has_extensions}>>:${CMAKE_C11_STANDARD_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_c_standard},99>,$<NOT:${_has_extensions}>>:${CMAKE_C99_STANDARD_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_c_standard},90>,$<NOT:${_has_extensions}>>:${CMAKE_C90_STANDARD_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_c_standard},11>,${_has_extensions}>:${CMAKE_C11_EXTENSION_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_c_standard},99>,${_has_extensions}>:${CMAKE_C99_EXTENSION_COMPILE_OPTION}>")
+    set(_standard_check "${_standard_check}$<$<AND:$<STREQUAL:${_c_standard},90>,${_has_extensions}>:${CMAKE_C90_EXTENSION_COMPILE_OPTION}>")
+  endif()
+  set(_standard_check "${_standard_check}\n")
+
+  file(GENERATE OUTPUT "${_filename}" CONTENT "${_compile_definitions}${_include_directories}${_compile_flags}${_compile_options}${_standard_check}\n")
+endfunction()
+
+function (gcc_pch_targets_for_mode _input mode)
+    get_filename_component(_name ${_input} NAME)
+    set(_pch_header "${CMAKE_CURRENT_SOURCE_DIR}/${_input}")
+    set(_pch_binary_dir "${CMAKE_CURRENT_BINARY_DIR}/${_target}_${mode}_pch")
+    set(_pchfile "${_pch_binary_dir}/${_input}")
+    set(_output "${_pch_binary_dir}/${_name}.gch")
+
+    set(_pch_flags_file "${_pch_binary_dir}/compile_flags.rsp")
+    export_all_flags("${_pch_flags_file}" ${mode})
+    set(_compiler_FLAGS "@${_pch_flags_file}")
+    add_custom_command(
+      OUTPUT "${_pchfile}"
+      COMMAND "${CMAKE_COMMAND}" -E copy "${_pch_header}" "${_pchfile}"
+      DEPENDS "${_pch_header}"
+      COMMENT "Updating ${_name} (${mode})")
+    if("${mode}" STREQUAL "CXX")
+      add_custom_command(
+        OUTPUT "${_output}"
+        COMMAND "${CMAKE_CXX_COMPILER}" ${_compiler_FLAGS} -x c++-header -o "${_output}" "${_pchfile}"
+        DEPENDS "${_pchfile}" "${_pch_flags_file}"
+        COMMENT "Precompiling ${_name} for ${_target} (C++)")
+    endif()
+    if("${mode}" STREQUAL "C")
+      add_custom_command(
+        OUTPUT "${_output}"
+        COMMAND "${CMAKE_C_COMPILER}" ${_compiler_FLAGS_c} -x c-header -o "${_output}" "${_pchfile}"
+        DEPENDS "${_pchfile}" "${_pch_flags_file}"
+        COMMENT "Precompiling ${_name} for ${_target} (C)")
+    endif()
+
+    set(_extensions "")
+    if("${mode}" STREQUAL "CXX")
+      set(_extensions "cc|cxx|cpp")
+    endif()
+    if("${mode}" STREQUAL "C")
+      set(_extensions "c")
+    endif()
+
+    get_property(_sources TARGET ${_target} PROPERTY SOURCES)
+    foreach(_source ${_sources})
+      set(_pch_compile_flags "")
+      if(_source MATCHES \\.\(${_extensions}\)$)
+        get_source_file_property(_pch_compile_flags "${_source}" COMPILE_FLAGS)
+        if(NOT _pch_compile_flags)
+          set(_pch_compile_flags)
+        endif()
+        separate_arguments(_pch_compile_flags)
+        list(APPEND _pch_compile_flags -Winvalid-pch)
+        if(_PCH_FORCEINCLUDE)
+          list(APPEND _pch_compile_flags -include "${_pchfile}")
+        else(_PCH_FORCEINCLUDE)
+          list(APPEND _pch_compile_flags "-I${_pch_binary_dir}")
+        endif(_PCH_FORCEINCLUDE)
+
+        get_source_file_property(_object_depends "${_source}" OBJECT_DEPENDS)
+        if(NOT _object_depends)
+          set(_object_depends)
+        endif()
+        list(APPEND _object_depends "${_pchfile}")
+        list(APPEND _object_depends "${_output}")
+
+        combine_arguments(_pch_compile_flags)
+        set_source_files_properties(${_source} PROPERTIES
+          COMPILE_FLAGS "${_pch_compile_flags}"
+          OBJECT_DEPENDS "${_object_depends}")
+      endif()
+    endforeach()
 endfunction()
 
 function(add_precompiled_header _target _input)
@@ -147,68 +244,8 @@ function(add_precompiled_header _target _input)
     endif()
   endif(MSVC)
 
-  if(CMAKE_COMPILER_IS_GNUCXX)
-    get_filename_component(_name ${_input} NAME)
-    set(_pch_header "${CMAKE_CURRENT_SOURCE_DIR}/${_input}")
-    set(_pch_binary_dir "${CMAKE_CURRENT_BINARY_DIR}/${_target}_pch")
-    set(_pchfile "${_pch_binary_dir}/${_input}")
-    set(_outdir "${CMAKE_CURRENT_BINARY_DIR}/${_target}_pch/${_name}.gch")
-    file(MAKE_DIRECTORY "${_outdir}")
-    set(_output_cxx "${_outdir}/.c++")
-    set(_output_c "${_outdir}/.c")
-
-    set(_pch_flags_file "${_pch_binary_dir}/compile_flags.rsp")
-    export_all_flags("${_pch_flags_file}")
-    set(_compiler_FLAGS "@${_pch_flags_file}")
-    add_custom_command(
-      OUTPUT "${_pchfile}"
-      COMMAND "${CMAKE_COMMAND}" -E copy "${_pch_header}" "${_pchfile}"
-      DEPENDS "${_pch_header}"
-      COMMENT "Updating ${_name}")
-    add_custom_command(
-      OUTPUT "${_output_cxx}"
-      COMMAND "${CMAKE_CXX_COMPILER}" ${_compiler_FLAGS} -x c++-header -o "${_output_cxx}" "${_pchfile}"
-      DEPENDS "${_pchfile}" "${_pch_flags_file}"
-      COMMENT "Precompiling ${_name} for ${_target} (C++)")
-    add_custom_command(
-      OUTPUT "${_output_c}"
-      COMMAND "${CMAKE_C_COMPILER}" ${_compiler_FLAGS} -x c-header -o "${_output_c}" "${_pchfile}"
-      DEPENDS "${_pchfile}" "${_pch_flags_file}"
-      COMMENT "Precompiling ${_name} for ${_target} (C)")
-
-    get_property(_sources TARGET ${_target} PROPERTY SOURCES)
-    foreach(_source ${_sources})
-      set(_pch_compile_flags "")
-
-      if(_source MATCHES \\.\(cc|cxx|cpp|c\)$)
-        get_source_file_property(_pch_compile_flags "${_source}" COMPILE_FLAGS)
-        if(NOT _pch_compile_flags)
-          set(_pch_compile_flags)
-        endif()
-        separate_arguments(_pch_compile_flags)
-        list(APPEND _pch_compile_flags -Winvalid-pch)
-        if(_PCH_FORCEINCLUDE)
-          list(APPEND _pch_compile_flags -include "${_pchfile}")
-        else(_PCH_FORCEINCLUDE)
-          list(APPEND _pch_compile_flags "-I${_pch_binary_dir}")
-        endif(_PCH_FORCEINCLUDE)
-
-        get_source_file_property(_object_depends "${_source}" OBJECT_DEPENDS)
-        if(NOT _object_depends)
-          set(_object_depends)
-        endif()
-        list(APPEND _object_depends "${_pchfile}")
-        if(_source MATCHES \\.\(cc|cxx|cpp\)$)
-          list(APPEND _object_depends "${_output_cxx}")
-        else()
-          list(APPEND _object_depends "${_output_c}")
-        endif()
-
-        combine_arguments(_pch_compile_flags)
-        set_source_files_properties(${_source} PROPERTIES
-          COMPILE_FLAGS "${_pch_compile_flags}"
-          OBJECT_DEPENDS "${_object_depends}")
-      endif()
-    endforeach()
-  endif(CMAKE_COMPILER_IS_GNUCXX)
+  if(${CMAKE_CXX_COMPILER_ID} MATCHES "GNU|Clang")
+    gcc_pch_targets_for_mode("${_input}" "C")
+    gcc_pch_targets_for_mode("${_input}" "CXX")
+  endif(${CMAKE_CXX_COMPILER_ID} MATCHES "GNU|Clang")
 endfunction()
