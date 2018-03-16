@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.3)
+cmake_policy(SET CMP0058 NEW)
+enable_testing()
+project(test-mixed-subdirectory)
+include(../../PrecompiledHeader.cmake)
+add_subdirectory(src)
