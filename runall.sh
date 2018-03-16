@@ -5,6 +5,8 @@ buildroot=$(dirname $(readlink -f $0))/build
 generator="Unix Makefiles"
 mkdir -p "$buildroot"
 for test in $(ls test); do
+
+  if [ "$#" == "1" ] && [ "$1" != "$test" ]; then continue; fi
   source="$buildroot/$test-$generator-source"
   build="$buildroot/$test-$generator-build"
   [ -e "$source" ] && rm -rf "$source"
