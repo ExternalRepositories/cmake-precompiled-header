@@ -263,6 +263,15 @@ function(add_precompiled_header _target _input)
     endif()
   endif(MSVC)
 
+  if(${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
+    # Clang only uses PCHs when using the -include option
+    # See: https://clang.llvm.org/docs/UsersManual.html#using-a-pch-file
+    if(NOT _PCH_FORCEINCLUDE)
+      message(WARNING "Clang requires the FORCEINCLUDE option to use PCHs, turning it on")
+    endif()
+    set(_PCH_FORCEINCLUDE ON)
+  endif()
+
   if(${CMAKE_CXX_COMPILER_ID} MATCHES "GNU|Clang")
     gcc_pch_targets_for_mode("${_input}" "${_PCH_PCH_PATH}" "C")
     gcc_pch_targets_for_mode("${_input}" "${_PCH_PCH_PATH}" "CXX")
