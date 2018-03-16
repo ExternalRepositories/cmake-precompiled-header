@@ -64,6 +64,13 @@ macro(combine_arguments _variable)
 endmacro()
 
 function(export_all_flags _filename mode)
+  get_target_property(_target_type ${_target} TYPE)
+  if(_target_type STREQUAL "EXECUTABLE")
+    set(_pic "$<$<BOOL:$<TARGET_PROPERTY:${_target},POSITION_INDEPENDENT_CODE>>:-fPIE\n>")
+  else()
+    set(_pic "$<$<BOOL:$<TARGET_PROPERTY:${_target},POSITION_INDEPENDENT_CODE>>:-fPIC\n>")
+  endif()
+
   set(_include_directories "$<TARGET_PROPERTY:${_target},INCLUDE_DIRECTORIES>")
   set(_compile_definitions "$<TARGET_PROPERTY:${_target},COMPILE_DEFINITIONS>")
   set(_compile_flags "$<TARGET_PROPERTY:${_target},COMPILE_FLAGS>")
@@ -100,7 +107,7 @@ function(export_all_flags _filename mode)
   endif()
   set(_standard_check "${_standard_check}\n")
 
-  file(GENERATE OUTPUT "${_filename}" CONTENT "${_compile_definitions}${_include_directories}${_compile_flags}${_compile_options}${_standard_check}\n")
+  file(GENERATE OUTPUT "${_filename}" CONTENT "${_compile_definitions}${_include_directories}${_compile_flags}${_compile_options}${_standard_check}${_pic}\n")
 endfunction()
 
 function (gcc_pch_targets_for_mode _input _pch_path mode)
